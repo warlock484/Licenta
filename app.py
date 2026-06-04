@@ -697,7 +697,7 @@ elif menu == "Reports & Documentation":
 
     | Source | Period | Days | Variables |
     |--------|--------|------|-----------|
-    | Synthetic (generated) | 2021–2025 | 1826 | Temperature, Precipitation, Soil Moisture, NDVI |
+    | Synthetic  | 2021–2025 | 1826 | Temperature, Precipitation, Soil Moisture, NDVI |
 
     ### Data Processing Pipeline
 
