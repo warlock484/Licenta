@@ -460,7 +460,12 @@ elif menu == "LSTM Model & Forecasts":
 
                 rmse = np.sqrt(mean_squared_error(y_test_real, predictions))
                 mae = mean_absolute_error(y_test_real, predictions)
-                mape = np.mean(np.abs((y_test_real - predictions) / y_test_real)) * 100
+                if np.any(y_test_real == 0):
+                    mape = float('inf')
+                    mape_display = "N/A (Div/0)"
+                else:
+                    mape = np.mean(np.abs((y_test_real - predictions) / y_test_real)) * 100
+                    mape_display = f"{mape:.2f}%"
                 r2 = r2_score(y_test_real, predictions)
 
                 final_train_loss = history.history['loss'][-1]
@@ -504,6 +509,7 @@ elif menu == "LSTM Model & Forecasts":
                     'rmse': rmse,
                     'mae': mae,
                     'mape': mape,
+                    'mape_display': mape_display,
                     'r2': r2,
                     'final_train_loss': final_train_loss,
                     'final_val_loss': final_val_loss,
@@ -533,7 +539,7 @@ elif menu == "LSTM Model & Forecasts":
         with col_m2:
             st.metric("MAE", f"{results['mae']:.4f}")
         with col_m3:
-            st.metric("MAPE", f"{results['mape']:.2f}%")
+            st.metric("MAPE", results['mape_display'])
         with col_m4:
             st.metric("R² Score", f"{results['r2']:.4f}")
 
@@ -697,7 +703,7 @@ elif menu == "Reports & Documentation":
 
     | Source | Period | Days | Variables |
     |--------|--------|------|-----------|
-    | Synthetic  | 2021–2025 | 1826 | Temperature, Precipitation, Soil Moisture, NDVI |
+    | Synthetic | 2021–2025 | 1826 | Temperature, Precipitation, Soil Moisture, NDVI |
 
     ### Data Processing Pipeline
 
