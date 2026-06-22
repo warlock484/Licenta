@@ -758,16 +758,26 @@ elif menu == "Spatial NDVI Visualization":
             st.pyplot(fig_sat_final, use_container_width=True)
 
         with col_viz_right:
-            st.markdown("### 🗺️ Analysis Location")
-            # Simple Folium localization
-            m = folium.Map(location=[44.5, 27.3], zoom_start=8, tiles=None)
+            st.markdown("### 🗺️ Geographic Context")
+            st.info(
+                "💡 **Note:** Spatial grid $466 \\times 513$ pixels represents a study area extracted from Switzerland. Exact coordinates were abstracted for training.")
+
+            # Centrat pe inima Alpilor Elvețieni
+            m = folium.Map(location=[46.6, 8.2], zoom_start=7, tiles=None)
             folium.TileLayer(
                 tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
                 attr='Esri', name='Satellite View', overlay=False, control=True).add_to(m)
-            # Dummy analysis zone rectangle
-            folium.Rectangle(bounds=[[44.2, 26.8], [44.8, 27.8]], color='#5a7cff', fill=True, fill_opacity=0.2,
-                             tooltip="Analysis Zone").add_to(m)
-            st_folium(m, width=500, height=500)
+
+            # Desenăm un dreptunghi generic (aprox. 120x120 km) reprezentativ pentru grila MODIS
+            folium.Rectangle(
+                bounds=[[46.1, 7.5], [47.1, 8.9]],
+                color='#5a7cff',
+                fill=True,
+                fill_opacity=0.2,
+                tooltip="Abstracted Spatial Grid (~120x120 km)",
+                dash_array='5, 5'  # Linie întreruptă pentru a sugera că e o grilă conceptuală
+            ).add_to(m)
+            st_folium(m, width=500, height=450)
 
 
 # ==========================================
@@ -797,7 +807,7 @@ elif menu == "Technical Documentation":
 
     | Source | Format | Valid Pixels | Time Steps (MODIS) | Study Area |
     |--------|-----------|--------|--------|--------|
-    | MODIS NDVI | Flat `.npz` Archive | ~185,000 pixels | 92 weeks | Romania (44N 27E) |
+    | MODIS NDVI | Flat `.npz` Archive | ~185,000 pixels | 92 weeks | Swiss Alpine Region (Abstracted Grid) |
 
     ### Satellite-Scale Spatial Reconstruction
     In the "Spatial Visualization" tab, the LSTM model is loaded and applied autoregressively to *every single* valid pixel (~185,000) from the `.npz` archive for a selected date. The results are mapped using the `(N,2)` [row, col] indices into an $H \\times W$ spatial matrix of $466 \\times 513$, perfectly recreating the spatial map of the region.
