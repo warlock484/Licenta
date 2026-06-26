@@ -22,6 +22,47 @@ st.set_page_config(page_title="Agro-LSTM Spatial Predictor", page_icon="🌾", l
 # File Parameters
 NPZ_PATH = "ndvi_lstm_processed.npz"
 MODEL_PATH = "agro_lstm_real_spatial.keras"
+ROI_PATH = "Date_Reale/roi2.npy"      # raw NDVI cube (H, W, T), used for preprocessing demos
+
+# ==========================================
+# DATASET FACTS (Sentinel-2)
+# ==========================================
+# The dataset is a real Sentinel-2 NDVI cube (roi2.npy -> 466 x 513 x 92) from
+# the IEEE DataPort "Sentinel-2 super-resolved data cubes" collection (Griparis
+# et al., CEOSpaceTech): tile T32TLT, Laegeren / Harth, northern Switzerland.
+# The 92 cloud-free L2A scenes (bands CNN super-resolved to 10 m) span 2018-2022
+# (5 years) and are NON-uniformly sampled (no winter scenes; concentrated in the
+# growing season) -> NOT a fixed weekly cadence. Exact per-scene dates ship as a
+# separate metadata CSV with the source dataset, not inside the .npy cube.
+SENSOR = "Sentinel-2"
+TILE = "T32TLT"
+REGION = "Laegeren / Harth, northern Switzerland"
+N_ACQ = 92            # temporal acquisitions per pixel
+SPAN_YEARS = 5        # 2018-2022, per the source dataset (5 growing seasons)
+
+
+def acquisition_dates(n=N_ACQ):
+    """Display x-axis for the temporal series.
+
+    The exact Sentinel-2 scene dates are not stored in the processed .npy cube
+    (they ship as a separate metadata CSV with the source dataset). The 92
+    cloud-free scenes span 2018-2022 and are non-uniformly sampled. For plotting
+    we spread them evenly across that span; treat the axis as an approximate
+    acquisition timeline, not exact calendar dates.
+    """
+    return pd.date_range(start="2018-01-01", periods=n, freq="20D")
+
+
+def to_real_ndvi(scaled, scaler):
+    """Map [0,1] globally-scaled values back to physical NDVI.
+
+    The preprocessing used global min-max: scaled = (ndvi - lo) / (hi - lo).
+    Inverting it recovers the real NDVI range stored in the scaler metadata.
+    """
+    if not scaler or scaler.get("method") != "global_minmax":
+        return scaled
+    lo, hi = scaler["lo"], scaler["hi"]
+    return scaled * (hi - lo) + lo
 
 # ==========================================
 # INITIALIZE SESSION STATE
@@ -201,14 +242,15 @@ X_train_full, X_val_full, valid_mask_full, pixel_index_full, scaler_real = load_
 # SIDEBAR NAVIGATION
 # ==========================================
 st.sidebar.title("🌾 Agro-LSTM Predictor")
-st.sidebar.markdown("Spatio-temporal vegetation monitoring system (MODIS)")
-st.sidebar.info("Operating Mode: **Real Univariate Satellite Data** ✅")
+st.sidebar.markdown(f"Spatio-temporal vegetation monitoring system ({SENSOR})")
+st.sidebar.info(f"Operating Mode: **Real {SENSOR} NDVI (tile {TILE})** ✅")
 
 st.sidebar.markdown("---")
 
 menu = st.sidebar.radio(
     "",
     ["Satellite Data Analysis",
+     "Preprocessing & Example Scene",
      "LSTM Model & Forecast",
      "Spatial NDVI Visualization",
      "Technical Documentation"]
@@ -228,7 +270,9 @@ st.sidebar.info("**System Status:** Operational ✓")
 # ==========================================
 if menu == "Satellite Data Analysis":
     st.title("Exploratory Satellite Data Analysis")
-    st.markdown("Overview of the preprocessed, spatially and temporally smoothed MODIS NDVI time series.")
+    st.markdown(
+        f"Overview of the preprocessed, spatially and temporally smoothed **{SENSOR}** NDVI time series "
+        f"(tile **{TILE}**, {REGION}).")
 
     num_valid_pixels = X_train_full.shape[0] + X_val_full.shape[0]
     time_steps = X_train_full.shape[1]
@@ -242,42 +286,61 @@ if menu == "Satellite Data Analysis":
     with col1:
         st.metric("Total Valid Pixels", f"{num_valid_pixels:,}")
     with col2:
-        st.metric("Time Steps per Pixel", f"{time_steps}")
+        st.metric("Acquisitions per Pixel", f"{time_steps}", help=f"Cloud-free {SENSOR} layers over ~{SPAN_YEARS} years")
     with col3:
         st.metric("Global Avg Scaled NDVI", f"{global_mean:.3f}")
     with col4:
-        st.metric("Global Variance", f"{global_std:.3f}")
+        st.metric("Global Std (Scaled)", f"{global_std:.3f}")
 
-    # --- 1. REGIONAL MEAN ---
+    # --- Scaling reference: how [0,1] maps to physical NDVI ---
+    with st.expander("ℹ️ How the [0,1] scaling maps to physical NDVI"):
+        if scaler_real and scaler_real.get("method") == "global_minmax":
+            lo, hi = scaler_real["lo"], scaler_real["hi"]
+            st.markdown(
+                f"All curves are stored as **globally min-max scaled** values in $[0,1]$. "
+                f"The mapping is $\\text{{scaled}} = (\\text{{NDVI}} - {lo:.3f}) / ({hi:.3f} - ({lo:.3f}))$, so "
+                f"`0.0` corresponds to physical NDVI **{lo:.3f}** and `1.0` to **{hi:.3f}**. "
+                f"This preserves the relative amplitude of the NDVI signal (no per-pixel re-centring).")
+        else:
+            st.markdown("Curves are stored as scaled values; no global min-max metadata is available.")
+
+    # Display axis spanning the ~5-year acquisition window
+    date_rng = acquisition_dates(time_steps)
+
+    # --- 1. REGIONAL MEAN (scaled AND physical NDVI) ---
     st.markdown("### 📈 Regional Mean Time Series")
-    st.info("This curve represents the mean NDVI calculated across all ~185k valid pixels in the study area.")
+    st.info(
+        f"Mean NDVI averaged across all {num_valid_pixels:,} valid vegetation pixels. The repeated peaks correspond "
+        f"to successive growing seasons captured over the ~{SPAN_YEARS}-year acquisition window.")
 
-    # Calculate regional temporal mean (vertical axis pixels, horizontal axis time)
-    regional_mean_ndvi = X_all.squeeze().mean(axis=0)  # Shape (92,)
+    regional_mean_scaled = X_all.squeeze().mean(axis=0)  # (92,)
+    regional_mean_real = to_real_ndvi(regional_mean_scaled, scaler_real)
 
-    # Dummy weekly date range (assuming 92 captures, dummy start)
-    date_rng = pd.date_range(start='2023-01-01', periods=time_steps, freq='W')
-    df_regional_mean = pd.DataFrame({'Mean NDVI': regional_mean_ndvi}, index=date_rng)
-
-    st.line_chart(df_regional_mean, color="#5a7cff")
+    show_real = st.toggle("Show physical NDVI values instead of [0,1] scaled", value=True)
+    series_to_plot = regional_mean_real if show_real else regional_mean_scaled
+    y_label = "NDVI (physical)" if show_real else "NDVI (scaled 0-1)"
+    df_regional_mean = pd.DataFrame({y_label: series_to_plot}, index=date_rng)
+    st.line_chart(df_regional_mean, color="#5aff96" if show_real else "#5a7cff")
 
     # --- 2. PIXEL VARIANCE VS MEAN ---
     st.markdown("### 📊 Spatial Variability (Pixel vs. Mean)")
     st.info(
-        "Displaying 5 randomly selected pixels to demonstrate how local phenology differs from the regional average.")
+        "Five randomly selected pixels overlaid on the regional mean, showing how local phenology "
+        "(crop type, management, soil) deviates from the regional average.")
 
+    conv = (lambda a: to_real_ndvi(a, scaler_real)) if show_real else (lambda a: a)
     fig_var, ax_var = plt.subplots(figsize=(12, 5))
     np.random.seed(42)
     indices_random = np.random.choice(X_all.shape[0], 5, replace=False)
 
     # Plot thick regional mean in background
-    ax_var.plot(date_rng, regional_mean_ndvi, linewidth=5, color='#ffffff', alpha=0.3, label='Regional Mean')
+    ax_var.plot(date_rng, conv(regional_mean_scaled), linewidth=5, color='#ffffff', alpha=0.3, label='Regional Mean')
 
     # Plot 5 individual pixels
     colors = ['#ff7c5a', '#5a7cff', '#5aff96', '#ff5acc', '#f1c40f']
     for i, idx in enumerate(indices_random):
-        ax_var.plot(date_rng, X_all[idx].squeeze(), color=colors[i], alpha=0.8, marker='.', markersize=4, linewidth=1,
-                    label=f'Pixel {idx}')
+        ax_var.plot(date_rng, conv(X_all[idx].squeeze()), color=colors[i], alpha=0.8, marker='.', markersize=4,
+                    linewidth=1, label=f'Pixel {idx}')
 
     # Plot Styling
     ax_var.set_facecolor('#0a0a1a')
@@ -286,8 +349,114 @@ if menu == "Satellite Data Analysis":
     plt.setp(ax_var.get_yticklabels(), color='white')
     ax_var.legend(facecolor='#1a1a2e', edgecolor='#5a7cff', labelcolor='white', fontsize=8)
     ax_var.grid(True, linestyle='--', alpha=0.3)
-    ax_var.set_ylabel("Scaled NDVI (0-1)", color='white')
+    ax_var.set_ylabel(y_label, color='white')
     st.pyplot(fig_var)
+
+
+# ==========================================
+# TAB 1b: PREPROCESSING & EXAMPLE SCENE
+# ==========================================
+elif menu == "Preprocessing & Example Scene":
+    st.title("Preprocessing Pipeline & Example NDVI Scene")
+    st.markdown(
+        f"How a raw **{SENSOR}** NDVI cube (`roi2.npy`, "
+        f"{valid_mask_full.shape[0]} × {valid_mask_full.shape[1]} × {N_ACQ}) becomes model-ready sequences: "
+        f"cloud/spike flagging → linear gap interpolation → Savitzky-Golay smoothing → global min-max scaling to [0,1].")
+
+    @st.cache_data
+    def load_raw_cube(path):
+        if not os.path.exists(path):
+            return None
+        return np.load(path).astype(np.float32)  # (H, W, T)
+
+    cube = load_raw_cube(ROI_PATH)
+    if cube is None:
+        st.warning(
+            f"Raw cube `{ROI_PATH}` not found, so the example scene and before/after demo are unavailable. "
+            "The processed `.npz` is still used by the other pages.")
+        st.stop()
+
+    H, W, T = cube.shape
+
+    # ---------- 1. EXAMPLE SCENE (single acquisition map) ----------
+    st.markdown("### 1. Example NDVI Scene (single acquisition)")
+    t_idx = st.slider("Acquisition index", 0, T - 1, T // 2)
+    scene = cube[:, :, t_idx].copy()
+    scene[~np.isfinite(scene)] = np.nan
+    scene[(scene <= -1.0) | (scene > 1.0)] = np.nan
+    scene[~valid_mask_full] = np.nan  # blank pixels excluded by the validity mask
+
+    fig_sc, ax_sc = plt.subplots(figsize=(W / 90, H / 90), dpi=100)
+    cmap_sc = plt.get_cmap('RdYlGn').copy()
+    cmap_sc.set_bad('#0a0a1a')
+    cax_sc = ax_sc.imshow(scene, cmap=cmap_sc, vmin=-0.1, vmax=1.0, interpolation='nearest')
+    ax_sc.axis('off')
+    cbar_sc = fig_sc.colorbar(cax_sc, ax=ax_sc, fraction=0.046, pad=0.02)
+    cbar_sc.set_label('Raw NDVI', color='white')
+    cbar_sc.ax.yaxis.set_tick_params(color='white')
+    plt.setp(plt.getp(cbar_sc.ax.axes, 'yticklabels'), color='white')
+    fig_sc.patch.set_facecolor('#0a0a1a')
+    st.pyplot(fig_sc)
+    st.caption(f"Acquisition {t_idx}/{T - 1}. Dark = no-data / non-vegetation pixels excluded by the validity mask.")
+
+    # ---------- 2. BEFORE / AFTER PER-PIXEL ----------
+    st.markdown("### 2. Per-pixel preprocessing: raw vs cleaned")
+    st.info(
+        "Pick valid pixels to compare the raw NDVI samples (red dots; clouds appear as sharp downward drops) "
+        "with the cleaned curve after cloud flagging, linear gap-fill and Savitzky-Golay smoothing.")
+
+    valid_rows, valid_cols = np.where(valid_mask_full)
+    n_demo = st.slider("How many random pixels", 1, 4, 3)
+    np.random.seed(0)
+    sel = np.random.choice(len(valid_rows), n_demo, replace=False)
+
+    def preprocess_pixel(series, cloud_thresh=0.0, spike_drop=0.30, window=7, poly=2):
+        """Single-pixel version of the ndvi_preprocess.py pipeline (steps 2-4)."""
+        from scipy.signal import savgol_filter
+        s = series.astype(float).copy()
+        s[(series <= cloud_thresh) | (series > 1.0) | ~np.isfinite(series)] = np.nan
+        pad = np.pad(np.nan_to_num(s, nan=np.nan), 1, mode='edge')
+        med = np.array([np.nanmedian(pad[i:i + 3]) for i in range(len(s))])
+        s[(med - s) > spike_drop] = np.nan
+        x = np.arange(len(s))
+        nan = np.isnan(s)
+        if nan.any() and (~nan).any():
+            s[nan] = np.interp(x[nan], x[~nan], s[~nan])
+        w = min(window, len(s) // 2 * 2 + 1)
+        if w > poly:
+            s = savgol_filter(s, w, poly)
+        return np.clip(s, -1.0, 1.0)
+
+    dates = acquisition_dates(T)
+    fig_ba, axes = plt.subplots(n_demo, 1, figsize=(12, 2.6 * n_demo), squeeze=False)
+    for ax, k in zip(axes[:, 0], sel):
+        r, c = valid_rows[k], valid_cols[k]
+        raw = cube[r, c, :]
+        clean = preprocess_pixel(raw)
+        ax.plot(dates, raw, '.', color='#ff5a7c', ms=5, alpha=0.5, label='raw NDVI (clouds = drops)')
+        ax.plot(dates, clean, '-', color='#5aff96', lw=2, label='cleaned + Savitzky-Golay')
+        ax.set_title(f'pixel (row {r}, col {c})', color='white', fontsize=10)
+        ax.set_ylim(-0.2, 1.05)
+        ax.set_ylabel('NDVI', color='white')
+        ax.set_facecolor('#0a0a1a')
+        ax.grid(True, ls='--', alpha=0.3)
+        plt.setp(ax.get_xticklabels(), color='white')
+        plt.setp(ax.get_yticklabels(), color='white')
+    axes[0, 0].legend(facecolor='#1a1a2e', edgecolor='#5a7cff', labelcolor='white', fontsize=8)
+    fig_ba.patch.set_facecolor('#0a0a1a')
+    fig_ba.tight_layout()
+    st.pyplot(fig_ba)
+
+    # ---------- 3. VALIDITY MASK ----------
+    st.markdown("### 3. Validity mask (kept vs discarded pixels)")
+    st.caption(
+        f"{int(valid_mask_full.sum()):,} pixels kept out of {H * W:,} "
+        f"({100 * valid_mask_full.sum() / (H * W):.1f}%); the rest are no-data / over-clouded and excluded from training.")
+    fig_mask, ax_mask = plt.subplots(figsize=(W / 110, H / 110), dpi=100)
+    ax_mask.imshow(valid_mask_full, cmap='Greens', interpolation='nearest')
+    ax_mask.axis('off')
+    fig_mask.patch.set_facecolor('#0a0a1a')
+    st.pyplot(fig_mask)
 
 
 # ==========================================
@@ -301,7 +470,8 @@ elif menu == "LSTM Model & Forecast":
     with st.container():
         st.markdown("### 1. Training Configuration")
         col_p1, col_p2 = st.columns(2)
-        look_back = col_p1.slider("Context Window (Look-back / weeks)", min_value=5, max_value=40, value=25, step=1)
+        look_back = col_p1.slider("Context Window (Look-back / acquisitions)", min_value=5, max_value=40, value=25,
+                                   step=1)
         epochs = col_p2.slider("Training Epochs", min_value=10, max_value=200, value=50, step=10)
 
         st.markdown("---")
@@ -310,7 +480,7 @@ elif menu == "LSTM Model & Forecast":
             "🌦️ **Note:** The forecast is **autoregressive** (the network uses its own predictions). "
             "The model predicts natural phenology based on its memory of historical patterns.")
 
-        days_to_predict = st.number_input("Weeks to forecast", min_value=1, max_value=100, value=60)
+        days_to_predict = st.number_input("Acquisition steps to forecast", min_value=1, max_value=100, value=60)
 
         # EMA Smoothing Configuration
         st.markdown("#### Forecast Smoothing Mechanism (Vegetation Inertia)")
@@ -488,12 +658,13 @@ elif menu == "LSTM Model & Forecast":
 
                 future_predictions = np.array(future_predictions)
 
-                # Date range for forecast
-                last_timestamp = pd.Timestamp('2024-01-01')
+                # Date range for forecast: continue right after the last acquisition,
+                # keeping the same ~3-week (20-day) display step as the historical series.
+                last_timestamp = acquisition_dates(N_ACQ)[-1]
                 future_dates = pd.date_range(
-                    start=last_timestamp + pd.Timedelta(days=1),
+                    start=last_timestamp + pd.Timedelta(days=20),
                     periods=days_to_predict,
-                    freq='W'
+                    freq='20D'
                 )
 
                 # Store results
@@ -574,8 +745,8 @@ elif menu == "LSTM Model & Forecast":
         fig_pred, ax_pred = plt.subplots(figsize=(12, 5))
         ax_pred.scatter(results['y_val_real'], results['predictions'], alpha=0.2, color='#5a7cff', s=10)
         ax_pred.plot([0, 1], [0, 1], 'r--', linewidth=2, color='#ff5a7c', label='Perfect Prediction')
-        ax_pred.set_xlabel('Actual MODIS NDVI (Scaled)', color='white')
-        ax_pred.set_ylabel('Predicted NDVI (Scaled)', color='white')
+        ax_pred.set_xlabel(f'Actual {SENSOR} NDVI (Scaled 0-1)', color='white')
+        ax_pred.set_ylabel('Predicted NDVI (Scaled 0-1)', color='white')
         ax_pred.set_title(f'Scatter Plot (R² = {results["r2"]:.4f})', color='white')
         ax_pred.set_facecolor('#0a0a1a')
         fig_pred.patch.set_facecolor('#0a0a1a')
@@ -601,15 +772,15 @@ elif menu == "LSTM Model & Forecast":
 
         st.markdown("### 🔮 Autoregressive EMA Future Forecast")
         st.caption(
-            "Displaying Historical Phenology (92 MODIS weeks) followed by the Autoregressive Forecast (EMA 0.25) based on model memory.")
+            f"Historical phenology ({N_ACQ} {SENSOR} acquisitions over ~{SPAN_YEARS} years) followed by the "
+            f"autoregressive forecast (EMA damping) extrapolated from the model's learned seasonal memory.")
         fig_fut, ax_f = plt.subplots(figsize=(14, 5))
 
-        # Historical reference point (Anchor Pixel)
-        # We use the historical regional mean for contextual background, not just a single pixel
-        date_rng_hist = pd.date_range(start='2021-01-01', periods=92, freq='W')
+        # Historical reference: the regional mean over the full acquisition window
+        date_rng_hist = acquisition_dates(N_ACQ)
         regional_mean_hist = np.concatenate([X_train_full, X_val_full], axis=0).squeeze().mean(axis=0)
 
-        ax_f.plot(date_rng_hist, regional_mean_hist, label='Historical Regional NDVI (MODIS Mean)', color='#5a7cff',
+        ax_f.plot(date_rng_hist, regional_mean_hist, label=f'Historical Regional NDVI ({SENSOR} Mean)', color='#5a7cff',
                   linewidth=3)
 
         # Plot forecast
@@ -617,8 +788,8 @@ elif menu == "LSTM Model & Forecast":
                   label=f'Univariate Autoregressive Forecast ({results["look_back"]} context)', color='#ff7c5a',
                   linestyle='dashed', linewidth=3, marker='.', markersize=8)
 
-        ax_f.axvline(x=results['last_timestamp'], color='#ffffff', linestyle=':', label='Present (End of MODIS Data)',
-                     linewidth=2)
+        ax_f.axvline(x=results['last_timestamp'], color='#ffffff', linestyle=':',
+                     label=f'Present (End of {SENSOR} Data)', linewidth=2)
         ax_f.set_title('NDVI Evolution: Historical Data vs Forecast', fontsize=14, color='white')
         ax_f.set_facecolor('#0a0a1a')
         fig_fut.patch.set_facecolor('#0a0a1a')
@@ -633,7 +804,7 @@ elif menu == "LSTM Model & Forecast":
 # TAB 3: SATELLITE IMAGERY (REAL SPATIAL MAPS)
 # ==========================================
 elif menu == "Spatial NDVI Visualization":
-    st.title("Spatial Visualization of MODIS Predictions")
+    st.title(f"Spatial Visualization of {SENSOR} NDVI Predictions")
     st.markdown(
         "Generate $H \\times W$ spatial maps in real-time using the trained LSTM model applied to *all* valid pixels.")
 
@@ -663,15 +834,16 @@ elif menu == "Spatial NDVI Visualization":
         st.markdown("### 1. Visualization Configuration")
         col_s1, col_s2 = st.columns(2)
 
-        # Slider to select the week from the MODIS dataset (92 weeks)
-        # We need `look_back` weeks of context to predict the next spatial week.
-        # So the slider is between `look_back` and 91.
-        selected_week = col_s1.slider("Select MODIS Week (for Context)", min_value=look_back_config, max_value=91,
-                                      value=look_back_config, step=1)
+        # Slider to select the acquisition index (0..91) used as the prediction target.
+        # We need `look_back` previous acquisitions as context to predict the next one,
+        # so the slider ranges from `look_back` to 91.
+        selected_week = col_s1.slider(f"Select {SENSOR} Acquisition Index (target)", min_value=look_back_config,
+                                      max_value=91, value=look_back_config, step=1)
 
         # Map type
         map_type = col_s2.selectbox("Visual Map Type:",
-                                    ["Raw MODIS Data (Actual)", "Model Prediction (1-Step Ahead)", "Spatial Error Map"])
+                                    [f"Raw {SENSOR} Data (Actual)", "Model Prediction (1-Step Ahead)",
+                                     "Spatial Error Map"])
 
         col_map_btn1, col_map_btn2 = st.columns([3, 1])
         with col_map_btn1:
@@ -679,7 +851,7 @@ elif menu == "Spatial NDVI Visualization":
 
         if load_map_btn:
             with st.spinner(
-                    f"Executing prediction on {X_train_full.shape[0] + X_val_full.shape[0]:,} pixels for MODIS week {selected_week}..."):
+                    f"Executing prediction on {X_train_full.shape[0] + X_val_full.shape[0]:,} pixels for {SENSOR} acquisition {selected_week}..."):
                 # --- A) PREPARE CONTEXT FOR ALL PIXELS ---
                 # Look at all valid pixels (concatenate)
                 X_all_full = np.concatenate([X_train_full, X_val_full], axis=0)  # Shape: (TotalPix, 92, 1)
@@ -695,10 +867,12 @@ elif menu == "Spatial NDVI Visualization":
                 preds_raw = model.predict(all_X_context, verbose=0)  # Shape: (TotalPix, 1)
 
                 # --- C) RECONSTRUCT SPATIAL MAPS ---
-                # Create empty 2D H x W maps
-                reconstructed_preds_map = np.zeros((H, W))
-                reconstructed_actual_map = np.zeros((H, W))
-                reconstructed_error_map = np.zeros((H, W))
+                # Fill with NaN so that masked-out (no-data) pixels are NOT confused
+                # with a valid NDVI value of 0. Only valid pixels receive a number;
+                # the rest stay NaN and are drawn as transparent/background.
+                reconstructed_preds_map = np.full((H, W), np.nan)
+                reconstructed_actual_map = np.full((H, W), np.nan)
+                reconstructed_error_map = np.full((H, W), np.nan)
 
                 # Use pixel_index_full to map flat array [N] values back to [H,W]
                 rows = pixel_index_full[:, 0]
@@ -726,7 +900,7 @@ elif menu == "Spatial NDVI Visualization":
         col_viz_left, col_viz_right = st.columns(2)
 
         with col_viz_left:
-            st.markdown(f"### 🖼️ Map: {map_type} (MODIS Week {map_results['week']})")
+            st.markdown(f"### 🖼️ Map: {map_type} ({SENSOR} acquisition {map_results['week']})")
 
             fig_sat_final, ax_sat_final = plt.subplots(figsize=(W / 80, H / 80), dpi=100)  # Maintain aspect ratio
 
@@ -734,18 +908,21 @@ elif menu == "Spatial NDVI Visualization":
             if "Error" in map_type:
                 data_plot = map_results['error_map']
                 norm = mcolors.TwoSlopeNorm(vmin=-0.3, vcenter=0, vmax=0.3)  # Errors centered on 0
-                cmap = 'coolwarm_r'  # Red=Prediction < Actual, Blue=Prediction > Actual
+                cmap = plt.get_cmap('coolwarm_r').copy()  # Red=Prediction < Actual, Blue=Prediction > Actual
                 label_cbar = 'NDVI Difference (Actual - Predicted)'
             else:
-                norm = mcolors.Normalize(vmin=0, vmax=1)  # Standard scaled NDVI
-                cmap = 'RdYlGn'
+                norm = mcolors.Normalize(vmin=0, vmax=1)  # Scaled NDVI in [0,1]
+                cmap = plt.get_cmap('RdYlGn').copy()
                 if "Actual" in map_type:
                     data_plot = map_results['actual_map']
-                    label_cbar = 'Raw MODIS NDVI (Scaled)'
+                    label_cbar = f'Raw {SENSOR} NDVI (Scaled 0-1)'
                 else:
                     data_plot = map_results['preds_map']
-                    label_cbar = 'LSTM Model NDVI (Scaled)'
+                    label_cbar = 'LSTM Model NDVI (Scaled 0-1)'
 
+            # No-data (NaN) pixels render in the dark background colour, so the colour
+            # scale is reserved strictly for the [0,1] valid-NDVI range.
+            cmap.set_bad('#0a0a1a')
             cax = ax_sat_final.imshow(data_plot, cmap=cmap, norm=norm, interpolation='nearest')
             ax_sat_final.axis('off')
 
@@ -760,23 +937,30 @@ elif menu == "Spatial NDVI Visualization":
         with col_viz_right:
             st.markdown("### 🗺️ Geographic Context")
             st.info(
-                "💡 **Note:** Spatial grid $466 \\times 513$ pixels represents a study area extracted from Switzerland. Exact coordinates were abstracted for training.")
+                f"💡 **Note:** The {H} × {W} pixel grid (~{H * 10 / 1000:.1f} × {W * 10 / 1000:.1f} km at 10 m "
+                f"{SENSOR} resolution) is a clip from tile **{TILE}**, over the {REGION} agricultural area "
+                f"north-west of Zurich.")
 
-            # Centrat pe inima Alpilor Elvețieni
-            m = folium.Map(location=[46.6, 8.2], zoom_start=7, tiles=None)
+            # Laegeren / Harth study area within Sentinel-2 tile T32TLT
+            laegeren = [47.48, 8.40]
+            m = folium.Map(location=laegeren, zoom_start=11, tiles=None)
             folium.TileLayer(
                 tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
                 attr='Esri', name='Satellite View', overlay=False, control=True).add_to(m)
 
-            # Desenăm un dreptunghi generic (aprox. 120x120 km) reprezentativ pentru grila MODIS
+            # Approximate footprint of the ~5 x 5 km ROI clip (centred on the Laegeren ridge).
+            # 0.045 deg lat ~ 5 km; 0.066 deg lon ~ 5 km at this latitude.
+            half_lat = (H * 10 / 1000) / 222.0   # km -> degrees latitude (1 deg ~ 111 km)
+            half_lon = (W * 10 / 1000) / (222.0 * np.cos(np.radians(laegeren[0])))
             folium.Rectangle(
-                bounds=[[46.1, 7.5], [47.1, 8.9]],
+                bounds=[[laegeren[0] - half_lat, laegeren[1] - half_lon],
+                        [laegeren[0] + half_lat, laegeren[1] + half_lon]],
                 color='#5a7cff',
                 fill=True,
-                fill_opacity=0.2,
-                tooltip="Abstracted Spatial Grid (~120x120 km)",
-                dash_array='5, 5'  # Linie întreruptă pentru a sugera că e o grilă conceptuală
+                fill_opacity=0.25,
+                tooltip=f"ROI clip in tile {TILE} ({REGION})",
             ).add_to(m)
+            folium.Marker(laegeren, tooltip=f"Tile {TILE} - Laegeren / Harth").add_to(m)
             st_folium(m, width=500, height=450)
 
 
@@ -786,31 +970,40 @@ elif menu == "Spatial NDVI Visualization":
 elif menu == "Technical Documentation":
     st.title("Technical Documentation")
 
-    st.markdown("""
+    st.markdown(f"""
     ### Spatio-Temporal Forecasting Architecture
 
-    The system utilizes a Stacked LSTM network trained on univariate MODIS satellite data (spatially preprocessed, gap-filled, smoothed, and 0-1 scaled NDVI). The model predicts the next time step (1 week) based on its long-term memory over a context window (look-back) of 25 weeks.
+    The system uses a stacked LSTM network trained on univariate **{SENSOR}** NDVI time series
+    (cloud-masked, gap-filled, Savitzky-Golay smoothed, and globally min-max scaled to [0,1]).
+    The model predicts the next acquisition from its memory of a context window (look-back) of
+    25 acquisitions, roughly one and a half years of phenological history given the irregular
+    ~3-week effective sampling.
 
     ### Model Serialization
-    The network is saved in the native TensorFlow Keras format (`.keras`) at `agro_lstm_real_spatial.keras`, allowing it to be loaded and run for inference (such as in the Spatial Visualization Tab) without retraining.
+    The network is saved in the native TensorFlow Keras format (`.keras`) at `agro_lstm_real_spatial.keras`,
+    so it can be loaded for inference (e.g. in the Spatial Visualization tab) without retraining.
 
     ### Model Specifications
 
     | Component | Value |
     |-----------|-------------|
-    | Architecture | Stacked LSTM (128 units -> 64 units) |
+    | Architecture | Stacked LSTM (64 units -> 32 units) -> Dense(16, LeakyReLU) -> Dense(1, sigmoid) |
+    | Regularization | L2 (1e-4) on LSTM weights + Dropout 0.2 after each LSTM |
     | Training Epochs | **50** (default) |
-    | Optimizer | Adam (Huber Loss, Adaptive LR) |
-    | Context Window (LB) | 25 weeks |
+    | Optimizer | Adam (Huber loss, ReduceLROnPlateau) |
+    | Context Window (LB) | 25 acquisitions |
 
-    ### Data Sources
+    ### Data Source
 
-    | Source | Format | Valid Pixels | Time Steps (MODIS) | Study Area |
-    |--------|-----------|--------|--------|--------|
-    | MODIS NDVI | Flat `.npz` Archive | ~185,000 pixels | 92 weeks | Swiss Alpine Region (Abstracted Grid) |
+    | Source | Format | Valid Pixels | Acquisitions | Study Area |
+    |--------|--------|--------------|--------------|------------|
+    | {SENSOR} NDVI (10 m) | Flat `.npz` archive | ~232,000 pixels | {N_ACQ} over ~{SPAN_YEARS} yr | Tile {TILE} ({REGION}) |
 
     ### Satellite-Scale Spatial Reconstruction
-    In the "Spatial Visualization" tab, the LSTM model is loaded and applied autoregressively to *every single* valid pixel (~185,000) from the `.npz` archive for a selected date. The results are mapped using the `(N,2)` [row, col] indices into an $H \\times W$ spatial matrix of $466 \\times 513$, perfectly recreating the spatial map of the region.
+    In the Spatial Visualization tab, the LSTM model is loaded and applied to *every* valid pixel
+    from the `.npz` archive for a selected acquisition. The predictions are mapped through the
+    `(N,2)` [row, col] index back into an $H \\times W$ matrix of $466 \\times 513$, reconstructing
+    the spatial NDVI map of the region.
     """)
 
     # Export processed data subset
