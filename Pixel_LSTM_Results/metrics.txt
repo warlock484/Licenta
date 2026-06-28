@@ -1,0 +1,9 @@
+Per-pixel pure-LSTM NDVI forecast (first 80 -> next 12)
+evaluated on 46,369 held-out validation pixels
+
+overall RMSE        : 0.0416 (NDVI units)
+overall MAE         : 0.0280
+overall R2          : 0.9348
+per-pixel RMSE mean : 0.0340
+per-pixel RMSE med  : 0.0279
+per-pixel RMSE p90  : 0.0635
