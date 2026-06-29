@@ -374,7 +374,11 @@ elif menu == "Preprocessing & Example Scene":
             try:
                 arr = np.load(path)
                 if isinstance(arr, np.lib.npyio.NpzFile):  # .npz archive
-                    arr = arr["cube"]
+                    scale = float(arr["scale"]) if "scale" in arr else 1.0
+                    cube_arr = arr["cube"].astype(np.float32)
+                    if np.issubdtype(arr["cube"].dtype, np.integer):
+                        cube_arr /= scale  # int8-quantized -> NDVI in [-1, 1]
+                    return cube_arr  # (H, W, T)
                 return arr.astype(np.float32)  # (H, W, T)
             except (ValueError, OSError, KeyError):
                 # File present but unreadable (e.g. a Git LFS pointer that wasn't
