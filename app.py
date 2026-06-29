@@ -213,7 +213,7 @@ st.markdown('<div class="fade-in">', unsafe_allow_html=True)
 @st.cache_data
 def load_and_preprocess_real_data(file_path):
     if not os.path.exists(file_path):
-        st.error(f"Preprocessed data file '{file_path}' not found. Please run `ndvi_preprocess.py` first.")
+        st.error(f"Preprocessed data file '{file_path}' not found. Please run ndvi_preprocess.py first.")
         st.stop()
         return None, None, None, None, None
 
@@ -231,7 +231,7 @@ def load_and_preprocess_real_data(file_path):
 
         return X_train, X_val, valid_mask, pixel_index, scaler_dict
     except Exception as e:
-        st.error(f"Error loading `.npz` file: {e}")
+        st.error(f"Error loading .npz file: {e}")
         st.stop()
         return None, None, None, None, None
 
@@ -244,7 +244,7 @@ X_train_full, X_val_full, valid_mask_full, pixel_index_full, scaler_real = load_
 # ==========================================
 st.sidebar.title("🌾 Agro-LSTM Predictor")
 st.sidebar.markdown(f"Spatio-temporal vegetation monitoring system ({SENSOR})")
-st.sidebar.info(f"Operating Mode: **Real {SENSOR} NDVI (tile {TILE})** ✅")
+st.sidebar.info(f"Operating Mode: *Real {SENSOR} NDVI (tile {TILE})* ✅")
 
 st.sidebar.markdown("---")
 
@@ -264,7 +264,7 @@ if st.session_state.training_complete:
         st.session_state.results = None
         st.rerun()
 
-st.sidebar.info("**System Status:** Operational ✓")
+st.sidebar.info("*System Status:* Operational ✓")
 
 # ==========================================
 # TAB 1: EXPLORATORY DATA ANALYSIS (REAL DATA)
@@ -272,8 +272,8 @@ st.sidebar.info("**System Status:** Operational ✓")
 if menu == "Satellite Data Analysis":
     st.title("Exploratory Satellite Data Analysis")
     st.markdown(
-        f"Overview of the preprocessed, spatially and temporally smoothed **{SENSOR}** NDVI time series "
-        f"(tile **{TILE}**, {REGION}).")
+        f"Overview of the preprocessed, spatially and temporally smoothed *{SENSOR}* NDVI time series "
+        f"(tile *{TILE}*, {REGION}).")
 
     num_valid_pixels = X_train_full.shape[0] + X_val_full.shape[0]
     time_steps = X_train_full.shape[1]
@@ -298,9 +298,9 @@ if menu == "Satellite Data Analysis":
         if scaler_real and scaler_real.get("method") == "global_minmax":
             lo, hi = scaler_real["lo"], scaler_real["hi"]
             st.markdown(
-                f"All curves are stored as **globally min-max scaled** values in $[0,1]$. "
+                f"All curves are stored as *globally min-max scaled* values in $[0,1]$. "
                 f"The mapping is $\\text{{scaled}} = (\\text{{NDVI}} - {lo:.3f}) / ({hi:.3f} - ({lo:.3f}))$, so "
-                f"`0.0` corresponds to physical NDVI **{lo:.3f}** and `1.0` to **{hi:.3f}**. "
+                f"0.0 corresponds to physical NDVI *{lo:.3f}* and 1.0 to *{hi:.3f}*. "
                 f"This preserves the relative amplitude of the NDVI signal (no per-pixel re-centring).")
         else:
             st.markdown("Curves are stored as scaled values; no global min-max metadata is available.")
@@ -360,7 +360,7 @@ if menu == "Satellite Data Analysis":
 elif menu == "Preprocessing & Example Scene":
     st.title("Preprocessing Pipeline & Example NDVI Scene")
     st.markdown(
-        f"How a raw **{SENSOR}** NDVI cube (`roi2.npy`, "
+        f"How a raw *{SENSOR}* NDVI cube (roi2.npy, "
         f"{valid_mask_full.shape[0]} × {valid_mask_full.shape[1]} × {N_ACQ}) becomes model-ready sequences: "
         f"cloud/spike flagging → linear gap interpolation → Savitzky-Golay smoothing → global min-max scaling to [0,1].")
 
@@ -385,8 +385,8 @@ elif menu == "Preprocessing & Example Scene":
     cube = load_raw_cube(ROI_PATH, ROI_PATH_NPZ)
     if cube is None:
         st.warning(
-            f"Raw cube `{ROI_PATH}` not found, so the example scene and before/after demo are unavailable. "
-            "The processed `.npz` is still used by the other pages.")
+            f"Raw cube not found (looked for {ROI_PATH} and {ROI_PATH_NPZ}), so the example scene "
+            "and before/after demo are unavailable. The processed .npz is still used by the other pages.")
         st.stop()
 
     H, W, T = cube.shape
@@ -490,7 +490,7 @@ elif menu == "LSTM Model & Forecast":
         st.markdown("---")
         st.markdown("### 2. Future Forecast Configuration")
         st.info(
-            "🌦️ **Note:** The forecast is **autoregressive** (the network uses its own predictions). "
+            "🌦️ *Note:* The forecast is *autoregressive* (the network uses its own predictions). "
             "The model predicts natural phenology based on its memory of historical patterns.")
 
         days_to_predict = st.number_input("Acquisition steps to forecast", min_value=1, max_value=100, value=60)
@@ -592,8 +592,8 @@ elif menu == "LSTM Model & Forecast":
 
                 # Custom callback for Streamlit progress
                 class FastProgressCallback(EarlyStopping):
-                    def __init__(self, epoch_text, progress_bar, total_epochs, **kwargs):
-                        super().__init__(**kwargs)
+                    def _init_(self, epoch_text, progress_bar, total_epochs, **kwargs):
+                        super()._init_(**kwargs)
                         self.epoch_text = epoch_text
                         self.progress_bar = progress_bar
                         self.total_epochs = total_epochs
@@ -608,7 +608,7 @@ elif menu == "LSTM Model & Forecast":
 
                         # Update epoch info
                         self.epoch_text.markdown(
-                            f"🔄 **Epoch {epoch_num}/{self.total_epochs}** | "
+                            f"🔄 *Epoch {epoch_num}/{self.total_epochs}* | "
                             f"Loss: {logs.get('loss', 0):.4f} | "
                             f"Val Loss: {logs.get('val_loss', 0):.4f}"
                         )
@@ -720,7 +720,7 @@ elif menu == "LSTM Model & Forecast":
     if st.session_state.training_complete and st.session_state.results is not None:
         results = st.session_state.results
 
-        st.success(f"✅ Training completed in the background and model saved to `{MODEL_PATH}` successfully.")
+        st.success(f"✅ Training completed in the background and model saved to {MODEL_PATH} successfully.")
 
         st.markdown("### 🎯 Model Performance Metrics (Spatial Validation)")
         st.caption("Metrics calculated on the validation subset (pixels unseen during training), on 0-1 scaled data.")
@@ -792,7 +792,7 @@ elif menu == "LSTM Model & Forecast":
 elif menu == "Spatial NDVI Visualization":
     st.title(f"Spatial Visualization of {SENSOR} NDVI Predictions")
     st.markdown(
-        "Generate $H \\times W$ spatial maps in real-time using the trained LSTM model applied to *all* valid pixels.")
+        "Generate $H \\times W$ spatial maps in real-time using the trained LSTM model applied to all valid pixels.")
 
     # 1. LOAD SAVED MODEL OR SESSION
     model = None
@@ -821,8 +821,8 @@ elif menu == "Spatial NDVI Visualization":
         col_s1, col_s2 = st.columns(2)
 
         # Slider to select the acquisition index (0..91) used as the prediction target.
-        # We need `look_back` previous acquisitions as context to predict the next one,
-        # so the slider ranges from `look_back` to 91.
+        # We need look_back previous acquisitions as context to predict the next one,
+        # so the slider ranges from look_back to 91.
         selected_week = col_s1.slider(f"Select {SENSOR} Acquisition Index (target)", min_value=look_back_config,
                                       max_value=91, value=look_back_config, step=1)
 
@@ -842,7 +842,7 @@ elif menu == "Spatial NDVI Visualization":
                 # Look at all valid pixels (concatenate)
                 X_all_full = np.concatenate([X_train_full, X_val_full], axis=0)  # Shape: (TotalPix, 92, 1)
 
-                # Extract spatial context `H x W x look_back x 1` for `selected_week`
+                # Extract spatial context H x W x look_back x 1 for selected_week
                 all_X_context = X_all_full[
                     :, selected_week - look_back_config: selected_week, :]  # Shape: (TotalPix, LB, 1)
 
@@ -923,8 +923,8 @@ elif menu == "Spatial NDVI Visualization":
         with col_viz_right:
             st.markdown("### 🗺️ Geographic Context")
             st.info(
-                f"💡 **Note:** The {H} × {W} pixel grid (~{H * 10 / 1000:.1f} × {W * 10 / 1000:.1f} km at 10 m "
-                f"{SENSOR} resolution) is a clip from tile **{TILE}**, over the {REGION} agricultural area "
+                f"💡 *Note:* The {H} × {W} pixel grid (~{H * 10 / 1000:.1f} × {W * 10 / 1000:.1f} km at 10 m "
+                f"{SENSOR} resolution) is a clip from tile *{TILE}*, over the {REGION} agricultural area "
                 f"north-west of Zurich.")
 
             # Laegeren / Harth study area within Sentinel-2 tile T32TLT
@@ -959,14 +959,14 @@ elif menu == "Technical Documentation":
     st.markdown(f"""
     ### Spatio-Temporal Forecasting Architecture
 
-    The system uses a stacked LSTM network trained on univariate **{SENSOR}** NDVI time series
+    The system uses a stacked LSTM network trained on univariate *{SENSOR}* NDVI time series
     (cloud-masked, gap-filled, Savitzky-Golay smoothed, and globally min-max scaled to [0,1]).
     The model predicts the next acquisition from its memory of a context window (look-back) of
     25 acquisitions, roughly one and a half years of phenological history given the irregular
     ~3-week effective sampling.
 
     ### Model Serialization
-    The network is saved in the native TensorFlow Keras format (`.keras`) at `agro_lstm_real_spatial.keras`,
+    The network is saved in the native TensorFlow Keras format (.keras) at agro_lstm_real_spatial.keras,
     so it can be loaded for inference (e.g. in the Spatial Visualization tab) without retraining.
 
     ### Model Specifications
@@ -975,7 +975,7 @@ elif menu == "Technical Documentation":
     |-----------|-------------|
     | Architecture | Stacked LSTM (64 units -> 32 units) -> Dense(16, LeakyReLU) -> Dense(1, sigmoid) |
     | Regularization | L2 (1e-4) on LSTM weights + Dropout 0.2 after each LSTM |
-    | Training Epochs | **50** (default) |
+    | Training Epochs | *50* (default) |
     | Optimizer | Adam (Huber loss, ReduceLROnPlateau) |
     | Context Window (LB) | 25 acquisitions |
 
@@ -983,12 +983,12 @@ elif menu == "Technical Documentation":
 
     | Source | Format | Valid Pixels | Acquisitions | Study Area |
     |--------|--------|--------------|--------------|------------|
-    | {SENSOR} NDVI (10 m) | Flat `.npz` archive | ~232,000 pixels | {N_ACQ} over ~{SPAN_YEARS} yr | Tile {TILE} ({REGION}) |
+    | {SENSOR} NDVI (10 m) | Flat .npz archive | ~232,000 pixels | {N_ACQ} over ~{SPAN_YEARS} yr | Tile {TILE} ({REGION}) |
 
     ### Satellite-Scale Spatial Reconstruction
-    In the Spatial Visualization tab, the LSTM model is loaded and applied to *every* valid pixel
-    from the `.npz` archive for a selected acquisition. The predictions are mapped through the
-    `(N,2)` [row, col] index back into an $H \\times W$ matrix of $466 \\times 513$, reconstructing
+    In the Spatial Visualization tab, the LSTM model is loaded and applied to every valid pixel
+    from the .npz archive for a selected acquisition. The predictions are mapped through the
+    (N,2) [row, col] index back into an $H \\times W$ matrix of $466 \\times 513$, reconstructing
     the spatial NDVI map of the region.
     """)
 
