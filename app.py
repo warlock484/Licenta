@@ -22,7 +22,7 @@ st.set_page_config(page_title="Agro-LSTM Spatial Predictor", page_icon="🌾", l
 # File Parameters
 NPZ_PATH = "ndvi_lstm_processed.npz"
 MODEL_PATH = "agro_lstm_real_spatial.keras"
-ROI_PATH = "Date_Reale/roi2.npy"      # raw NDVI cube (H, W, T), used for preprocessing demos
+ROI_PATH = "Date_reale/roi2.npy"      # raw NDVI cube (H, W, T), used for preprocessing demos
 
 # ==========================================
 # DATASET FACTS (Sentinel-2)
