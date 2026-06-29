@@ -22,7 +22,8 @@ st.set_page_config(page_title="Agro-LSTM Spatial Predictor", page_icon="🌾", l
 # File Parameters
 NPZ_PATH = "ndvi_lstm_processed.npz"
 MODEL_PATH = "agro_lstm_real_spatial.keras"
-ROI_PATH = "Date_Reale/roi2.npy"      # raw NDVI cube (H, W, T), used for preprocessing demos
+ROI_PATH = "Date_reale/roi2.npy"      # raw NDVI cube (H, W, T), used for preprocessing demos
+ROI_PATH_NPZ = "Date_reale/roi2.npz"  # compressed float16 fallback (deploy-friendly, < 100 MB)
 
 # ==========================================
 # DATASET FACTS (Sentinel-2)
@@ -364,12 +365,24 @@ elif menu == "Preprocessing & Example Scene":
         f"cloud/spike flagging → linear gap interpolation → Savitzky-Golay smoothing → global min-max scaling to [0,1].")
 
     @st.cache_data
-    def load_raw_cube(path):
-        if not os.path.exists(path):
-            return None
-        return np.load(path).astype(np.float32)  # (H, W, T)
+    def load_raw_cube(npy_path, npz_path):
+        # Prefer the full-resolution .npy locally; fall back to the compressed
+        # float16 .npz that is small enough to ship to the cloud (< 100 MB).
+        for path in (npy_path, npz_path):
+            if not os.path.exists(path):
+                continue
+            try:
+                arr = np.load(path)
+                if isinstance(arr, np.lib.npyio.NpzFile):  # .npz archive
+                    arr = arr["cube"]
+                return arr.astype(np.float32)  # (H, W, T)
+            except (ValueError, OSError, KeyError):
+                # File present but unreadable (e.g. a Git LFS pointer that wasn't
+                # fetched on the deploy host). Try the next candidate / give up.
+                continue
+        return None
 
-    cube = load_raw_cube(ROI_PATH)
+    cube = load_raw_cube(ROI_PATH, ROI_PATH_NPZ)
     if cube is None:
         st.warning(
             f"Raw cube `{ROI_PATH}` not found, so the example scene and before/after demo are unavailable. "
@@ -770,34 +783,7 @@ elif menu == "LSTM Model & Forecast":
         ax_err.legend(facecolor='#1a1a2e', edgecolor='#5a7cff', labelcolor='white')
         st.pyplot(fig_err)
 
-        st.markdown("### 🔮 Autoregressive EMA Future Forecast")
-        st.caption(
-            f"Historical phenology ({N_ACQ} {SENSOR} acquisitions over ~{SPAN_YEARS} years) followed by the "
-            f"autoregressive forecast (EMA damping) extrapolated from the model's learned seasonal memory.")
-        fig_fut, ax_f = plt.subplots(figsize=(14, 5))
 
-        # Historical reference: the regional mean over the full acquisition window
-        date_rng_hist = acquisition_dates(N_ACQ)
-        regional_mean_hist = np.concatenate([X_train_full, X_val_full], axis=0).squeeze().mean(axis=0)
-
-        ax_f.plot(date_rng_hist, regional_mean_hist, label=f'Historical Regional NDVI ({SENSOR} Mean)', color='#5a7cff',
-                  linewidth=3)
-
-        # Plot forecast
-        ax_f.plot(results['future_dates'], results['future_predictions'],
-                  label=f'Univariate Autoregressive Forecast ({results["look_back"]} context)', color='#ff7c5a',
-                  linestyle='dashed', linewidth=3, marker='.', markersize=8)
-
-        ax_f.axvline(x=results['last_timestamp'], color='#ffffff', linestyle=':',
-                     label=f'Present (End of {SENSOR} Data)', linewidth=2)
-        ax_f.set_title('NDVI Evolution: Historical Data vs Forecast', fontsize=14, color='white')
-        ax_f.set_facecolor('#0a0a1a')
-        fig_fut.patch.set_facecolor('#0a0a1a')
-        plt.setp(ax_f.get_xticklabels(), color='white')
-        plt.setp(ax_f.get_yticklabels(), color='white')
-        ax_f.legend(facecolor='#1a1a2e', edgecolor='#5a7cff', labelcolor='white')
-        ax_f.grid(True, linestyle='--', alpha=0.3)
-        st.pyplot(fig_fut)
 
 
 # ==========================================
