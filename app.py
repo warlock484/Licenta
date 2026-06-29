@@ -23,7 +23,7 @@ st.set_page_config(page_title="Agro-LSTM Spatial Predictor", page_icon="🌾", l
 NPZ_PATH = "ndvi_lstm_processed.npz"
 MODEL_PATH = "agro_lstm_real_spatial.keras"
 ROI_PATH = "Date_reale/roi2.npy"      # raw NDVI cube (H, W, T), used for preprocessing demos
-ROI_PATH_NPZ = "Date_reale/roi2.npz"  # compressed float16 fallback (deploy-friendly, < 100 MB)
+ROI_PATH_NPZ = "Date_Reale/roi2.npz"  # compressed float16 fallback (deploy-friendly, < 100 MB)
 
 # ==========================================
 # DATASET FACTS (Sentinel-2)
